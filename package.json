@@ -1,0 +1,13 @@
+{
+  "name": "hwamul-campaign-site",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "화물연대본부 선거 홈페이지",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@netlify/blobs": "11.1.9"
+  }
+}

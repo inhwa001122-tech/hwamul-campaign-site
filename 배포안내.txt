@@ -1,0 +1,42 @@
+화물연대본부 기호 2번 장정훈·공성일·오영학 선거 홈페이지 · 실제 배포용
+2026년 11월 15일
+
+※ 기존 김진희 선본 홈페이지와는 별도 프로젝트로 개설하세요.
+※ 이 파일은 실제 Netlify 계정에 업로드되지 않았습니다.
+
+1. ZIP을 컴퓨터에서 압축 해제합니다.
+2. GitHub(https://github.com/new)에 새 저장소를 만듭니다.
+   예시 이름: hwamul-election-2026 (기존 gg-campaign-site 저장소와 분리)
+3. 새 저장소의 Add file → Upload files로 이 폴더 안의 파일과 폴더를 업로드합니다.
+   올려야 할 항목: public/ , netlify/ , netlify.toml , package.json , .nvmrc
+   public/ 폴더가 반드시 저장소 최상위에 있어야 합니다.
+4. 기존 Netlify 유료 팀으로 로그인: https://app.netlify.com/
+   Add new project → Import an existing project → GitHub → 새 저장소 선택
+5. 설정값 확인:
+   - Base directory: 비워 두기
+   - Publish directory: public
+   - Functions directory: netlify/functions
+   - Node.js: 24 (.nvmrc 파일로 지정됨)
+   - Build command: netlify.toml에 명시되어 있음
+6. Netlify Project configuration → Environment variables에서 직접 설정:
+   ADMIN_PASSWORD = 본인이 정한 12자 이상 관리자 비밀번호
+   SESSION_SECRET = 임의의 예측 불가능한 문자열 24자 이상(권장 64자리)
+   *** 두 값을 ChatGPT에 보내지 마세요. ***
+7. 배포 완료 후 새 사이트 URL에서 /api?action=health 열기.
+   {"ok":true,"adminConfigured":true} 를 확인합니다.
+   adminConfigured:false라면 환경변수 재확인 후 재배포합니다.
+8. 사이트 우측 상단 관리자 아이콘 → 비밀번호 로그인 → 메인 문구 수정 및 저장 테스트.
+   다른 브라우저에서 바뀐 문구가 표시되는지 확인하세요.
+9. 정책제안에 테스트 게시글 등록 → 관리자 답변·삭제를 확인합니다.
+10. 계좌번호 복사 버튼을 눌러 3333388669866 복사를 확인합니다.
+
+기능: 흰색 메인 / 클릭식 상단 메뉴 / PC·모바일 대응 / 장정훈 메인 후보
+4+2 핵심공약 / 정책제안 / 응원하기 / 선거 소식 / 자료실
+홈페이지 직접 편집 / 후원계좌 복사 / 유튜브·카카오톡 링크 추후 관리자 등록
+
+안내: 정적 HTML만 Netlify Drop에 끌어 넣을 경우 서버 함수·게시판이
+설치되지 않을 수 있으므로 GitHub 연동 배포를 권장합니다.
+Netlify Blobs는 사이트별 저장소이므로 김진희 선본 데이터와 분리됩니다.
+
+개발·검증 상태: 브라우저 UI와 서버 API는 로컬 환경에서 점검했습니다.
+실제 Netlify 운영 환경의 로그인·파일 업로드·게시판 공개 저장은 배포 후 검증해야 합니다.
