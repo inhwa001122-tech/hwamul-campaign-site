@@ -7,6 +7,17 @@ const storeBoards = () => getStore({ name: `${SID}-messages`, consistency: 'stro
 const storeFiles = () => getStore({ name: `${SID}-media`, consistency: 'strong' });
 const storeRate = () => getStore({ name: `${SID}-anti-spam`, consistency: 'strong' });
 const MAX_FILE = 3_000_000;
+// Add the two special promises to previously saved site data exactly once.
+// Preserve the other policies, uploaded images, copy, site settings, and admin edits.
+const SPECIAL_PROMISES = [{"id":"special-accountability","kind":"special","title":"공약 이행, 조합원에게 평가받겠습니다!","eyebrow":"특별한 약속 1","sections":[{"title":"","points":["임원 공약 이행 현황과 주요 사업 추진 결과 매 대의원대회 전후 조합원 온오프라인 보고"]}]},{"id":"special-disclosure","kind":"special","title":"후보자부터 재산공개! 투명하고 책임 있는 화물연대!","eyebrow":"특별한 약속 2","sections":[{"title":"","points":["본부 임원후보자 재산공개제도 도입 추진","조합원 의견수렴을 통해 공개 범위와 방식 등 제도화 방안 마련"]}]}];
+const includeSpecialPromises = site => {
+  if(!site || !Array.isArray(site.policies) || site._migrations?.specialPromisesV1 === true) return site;
+  const existing=new Set(site.policies.map(p=>String(p.id)));
+  const existingTitles=new Set(site.policies.map(p=>String(p.title)));
+  const missing=SPECIAL_PROMISES.filter(p=>!existing.has(p.id)&&!existingTitles.has(p.title));
+  return {...site,policies:[...site.policies,...missing],_migrations:{...(site._migrations||{}),specialPromisesV1:true}};
+};
+
 const json = (body, status = 200, extraHeaders = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extraHeaders } });
 const err = (message, code = 400) => json({ ok: false, error: message }, code);
 const text = (value, max=2500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -43,7 +54,7 @@ const validId = id => /^[\w-]{6,80}$/.test(id||'');
 const defaultHeaders = {'cache-control':'no-store','x-content-type-options':'nosniff'};
 async function loadBoard(type, administrator=false) {
   const st=storeBoards();
-  const prefix=type==='proposal'?'proposal/':'cheer/';
+  const prefix='proposal/';
   const result=await st.list({prefix});
   const rows=await Promise.all((result.blobs||[]).slice(0,1000).map(async ({key})=>st.get(key,{type:'json'})));
   return rows.filter(Boolean).filter(r=>administrator || r.visible!==false).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).slice(0,150);
@@ -51,6 +62,11 @@ async function loadBoard(type, administrator=false) {
 function publicBoardRow(row,administrator) {
   const {id,type,title,name,category,body,status,reply,createdAt,visible}=row;
   return {id,type,title,name,category,body,status,reply,createdAt,...(administrator?{visible}: {})};
+}
+async function countProposals() {
+  // list() automatically includes every page, not only the first 1,000 entries.
+  const { blobs }=await storeBoards().list({prefix:'proposal/'});
+  return (blobs||[]).length;
 }
 async function rateLimit(request) {
   const ip=request.headers.get('x-nf-client-connection-ip') || (request.headers.get('x-forwarded-for')||'').split(',')[0]?.trim() || 'unknown';
@@ -80,12 +96,12 @@ export default async function handler(request) {
     if(action==='logout' && method==='POST')return json({ok:true},200,{'set-cookie':'hwamul_admin=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0'});
     if(action==='site' && method==='GET') {
       const existing=await storeContent().get('site/main',{type:'json'});
-      return json({ok:true,site:existing||null});
+      return json({ok:true,site:includeSpecialPromises(existing)||null});
     }
     if(action==='site' && method==='PUT') {
       const auth=verifyAdmin(request);if(auth)return auth;
       const body=await jsonBody(request);
-      const site=body?.site;
+      const site=includeSpecialPromises(body?.site);
       if(!site || !Array.isArray(site.candidates) || !Array.isArray(site.policies) || !Array.isArray(site.manifesto) || !Array.isArray(site.news) || !Array.isArray(site.resources) || !site.hero)return err('홈페이지 자료 형식이 올바르지 않습니다.');
       const encoded=JSON.stringify(site);
       if(encoded.length>1_200_000)return err('홈페이지 데이터가 너무 큽니다. 큰 사진은 파일 업로드 기능을 사용해 주세요.');
@@ -94,40 +110,42 @@ export default async function handler(request) {
     }
     if(action==='board' && method==='GET') {
       const type=url.searchParams.get('type');
-      if(!['proposal','cheer'].includes(type))return err('게시판 종류가 올바르지 않습니다.');
+      if(type!=='proposal')return err('운영하지 않는 게시판입니다.',404);
       const isAdmin=goodCookie(request);
-      const rows=await loadBoard(type,isAdmin);
-      return json({ok:true,items:rows.map(r=>publicBoardRow(r,isAdmin))});
+      const count=await countProposals();
+      if(!isAdmin)return json({ok:true,count,items:[]}); // Never send private proposal data to visitors.
+      const rows=await loadBoard('proposal',true);
+      return json({ok:true,count,items:rows.map(r=>publicBoardRow(r,true))});
     }
     if(action==='board' && method==='POST') {
       const data=await jsonBody(request);
       if(text(data?.website,100))return err('게시글을 등록할 수 없습니다.'); // honeypot
       const type=text(data?.type,20);
-      if(!['proposal','cheer'].includes(type))return err('게시판 종류가 올바르지 않습니다.');
+      if(type!=='proposal')return err('운영하지 않는 게시판입니다.',404);
       const body=text(data?.body,1500),title=text(data?.title,110),name=text(data?.name,25)||'익명',category=text(data?.category,30);
       if(body.length<5 || title.length<2)return err('제목과 본문을 확인해 주세요.');
-      if(data?.consent!==true)return err('게시물 공개에 동의해 주세요.');
+      if(data?.consent!==true)return err('비공개 정책제안 접수에 동의해 주세요.');
       if(!await rateLimit(request))return err('연속 등록은 잠시 후 다시 시도해 주세요.',429);
       const id=randomUUID();
-      const row={id,type,title,name,category,body,status:'접수',reply:'',visible:true,createdAt:new Date().toISOString()};
+      const row={id,type,title,name,category,body,status:'접수',reply:'',visible:false,createdAt:new Date().toISOString()};
       await storeBoards().setJSON(`${type}/${id}`,row,{onlyIfNew:true});
-      return json({ok:true,item:publicBoardRow(row,false)},201);
+      return json({ok:true,count:await countProposals()},201);
     }
     if(action==='board' && method==='PATCH') {
       const auth=verifyAdmin(request);if(auth)return auth;
       const data=await jsonBody(request);
       const type=text(data?.type,20),id=text(data?.id,100);
-      if(!['proposal','cheer'].includes(type)||!validId(id))return err('게시물 정보가 올바르지 않습니다.');
+      if(type!=='proposal'||!validId(id))return err('게시물 정보가 올바르지 않습니다.',404);
       const store=storeBoards(),key=`${type}/${id}`;
       const existing=await store.get(key,{type:'json'});if(!existing)return err('게시물이 없습니다.',404);
-      const next={...existing,status:text(data.status,20)||existing.status,reply:text(data.reply,1200),visible:data.visible!==false};
+      const next={...existing,status:text(data.status,20)||existing.status,reply:text(data.reply,1200),visible:false};
       await store.setJSON(key,next);
       return json({ok:true,item:publicBoardRow(next,true)});
     }
     if(action==='board' && method==='DELETE') {
       const auth=verifyAdmin(request);if(auth)return auth;
       const data=await jsonBody(request),type=text(data?.type,20),id=text(data?.id,100);
-      if(!['proposal','cheer'].includes(type)||!validId(id))return err('게시물 정보가 올바르지 않습니다.');
+      if(type!=='proposal'||!validId(id))return err('게시물 정보가 올바르지 않습니다.',404);
       await storeBoards().delete(`${type}/${id}`);
       return json({ok:true});
     }
