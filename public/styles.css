@@ -125,3 +125,24 @@
 .footer-admin-tools{position:relative;min-height:45px;margin-bottom:12px}
 .footer-admin-tools .inline-edit{top:0;right:0;border-color:#787b82}
 @media(max-width:780px){.footer-service{gap:18px}.donation-info{gap:10px 14px}.donation-account{font-size:17px}.copy-account-button{width:100%;margin-top:4px}}
+
+/* 선거 소식: 원본 사진 비율 유지, 쇼츠/가로 영상에 맞춘 재생 영역 */
+.news-image{height:auto;min-height:120px;overflow:hidden;background:#f5f4f1}
+.news-image img{width:auto;max-width:100%;height:auto;max-height:440px;object-fit:contain}
+.news-image--video{padding:14px 10px}
+.news-video{display:block;width:100%;max-width:100%;margin-inline:auto;background:#15171b;border-radius:10px;overflow:hidden}
+.news-video--portrait{max-width:260px;aspect-ratio:9/16}
+.news-video--landscape{aspect-ratio:16/9}
+.news-video--native{background:transparent}
+.news-video iframe{display:block;width:100%;height:100%;border:0}
+.news-video video{display:block;width:100%;height:auto;max-height:75vh;object-fit:contain;background:#15171b}
+.news-video--native:has(video){aspect-ratio:auto}
+.news-detail-gallery{display:grid;gap:16px;justify-items:center}
+.news-detail-gallery:empty{display:none}
+.news-detail-gallery img{display:block;width:auto;max-width:100%;height:auto;max-height:82vh;object-fit:contain;border-radius:10px}
+@media(max-width:520px){.news-image img{max-height:480px}.news-image--video{padding:12px}.news-video--portrait{max-width:min(100%,280px)}}
+
+/* 모바일 후보 소개: 장정훈(위원장) 우선 표시 / PC 기존 좌-중-우 배치 유지 */
+@media (max-width:780px) {
+  .candidate-overview > .candidate-card.main { order:-1; }
+}

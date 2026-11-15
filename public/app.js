@@ -96,14 +96,42 @@ function board(type){
  ${!state.backend&&!state.preview?'<div class="board-error"><b>게시판 서버 연결 전입니다.</b> Netlify 배포와 관리자 설정을 완료하면 실제 제안 작성과 게시물 저장이 가능합니다.</div>':''}
  <div class="board-list">${filtered.length?filtered.map(row=>boardCard(row,type)).join(''):`<div class="board-empty"><b>${proposal?'아직 등록된 정책제안이 없습니다.':'아직 등록된 응원글이 없습니다.'}</b><p>${proposal?'첫 번째 정책제안을 남겨주세요.':'첫 번째 응원 메시지를 남겨주세요.'}</p></div>`}</div></div></div></section>`;
 }
+function newsVideoMedia(link,orientation='auto',title='선거 영상'){
+ const raw=String(link||'').trim();if(!raw)return '';
+ let parsed;try{parsed=new URL(raw)}catch{return ''}
+ if(parsed.protocol!=='https:')return '';
+ const host=parsed.hostname.toLowerCase().replace(/^www\./,'').replace(/^m\./,'');
+ let id='',portrait=false;
+ if(host==='youtu.be') id=parsed.pathname.split('/').filter(Boolean)[0]||'';
+ else if(host==='youtube.com'||host==='youtube-nocookie.com'){
+  const parts=parsed.pathname.split('/').filter(Boolean);
+  if(parts[0]==='shorts'){id=parts[1]||'';portrait=true}
+  else if(parts[0]==='watch')id=parsed.searchParams.get('v')||'';
+  else if(parts[0]==='embed'||parts[0]==='live')id=parts[1]||'';
+ }
+ if(/^[A-Za-z0-9_-]{11}$/.test(id)){
+  const mode=orientation==='portrait'?'portrait':orientation==='landscape'?'landscape':portrait?'portrait':'landscape';
+  return `<div class="news-video news-video--${mode}"><iframe loading="lazy" src="https://www.youtube-nocookie.com/embed/${id}" title="${esc(title)}" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+ }
+ if(/\.(mp4|webm|ogv)$/i.test(parsed.pathname)){
+  const mode=orientation==='portrait'?'portrait':orientation==='landscape'?'landscape':'native';
+  return `<div class="news-video news-video--${mode}"><video controls playsinline preload="metadata" src="${esc(parsed.href)}" aria-label="${esc(title)}"></video></div>`;
+ }
+ return '';
+}
 function openNewsDetail(id){
  const row=state.site.news.find(n=>n.id===id);if(!row)return;
  const urls=[row.image,...(row.images||[])].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i);
- openModal(row.title,`<div class="form-stack"><div class="board-meta"><span class="category-label">${esc(row.category||'현장 소식')}</span><span>${esc(row.date||'')}</span></div><p style="white-space:pre-line;line-height:1.95;color:#444951">${esc(row.body||'')}</p>${urls.map(src=>`<img src="${safeUrl(src)}" alt="${esc(row.title)} 현장사진" style="width:100%;height:auto;border-radius:10px">`).join('')}${safeUrl(row.link)?`<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="${safeUrl(row.link)}">연결된 영상·자료 보기</a>`:''}</div>`,true);
+ const video=newsVideoMedia(row.link,row.videoOrientation,`${row.title} 영상`);
+ openModal(row.title,`<div class="form-stack"><div class="board-meta"><span class="category-label">${esc(row.category||'현장 소식')}</span><span>${esc(row.date||'')}</span></div><p style="white-space:pre-line;line-height:1.95;color:#444951">${esc(row.body||'')}</p>${video}<div class="news-detail-gallery">${urls.map(src=>`<img loading="lazy" src="${safeUrl(src)}" alt="${esc(row.title)} 현장사진">`).join('')}</div>${!video&&safeUrl(row.link)?`<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="${safeUrl(row.link)}">연결된 영상·자료 보기</a>`:''}</div>`,true);
 }
 function news(){
  const rows=state.site.news.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
- return head('CAMPAIGN JOURNAL','선거 소식','후보들의 현장 활동, 사진, 영상, 선거운동 소식을 모아봅니다.')+`<section class="section-pad"><div class="container">${state.admin?'<button class="admin-add" data-add="news" style="margin:0 0 24px">＋ 선거 소식 추가</button>':''}${rows.length?`<div class="news-grid">${rows.map(row=>`<article class="news-card edit-area">${editButton('news',row.id)}<div class="news-image">${safeUrl(row.image||(row.images||[])[0])?`<img loading="lazy" src="${safeUrl(row.image||(row.images||[])[0])}" alt="${esc(row.title)}">`:'<span class="muted">PHOTO / VIDEO</span>'}</div><div class="news-body"><small>${esc(row.category||'현장 소식')} · ${esc(row.date||'')}${newBadge(row.date)}</small><h3>${esc(row.title)}</h3><p>${esc(row.body)}</p></div><div class="news-foot"><button class="btn btn-sm btn-outline" data-news-detail="${esc(row.id)}">내용·사진 더 보기</button></div></article>`).join('')}</div>`:'<div class="empty-state"><h3>선거 소식을 준비하고 있습니다.</h3><p>현장 방문 사진과 영상이 등록되면 이곳에서 확인할 수 있습니다.</p></div>'}</div></section>`;
+ return head('CAMPAIGN JOURNAL','선거 소식','후보들의 현장 활동, 사진, 영상, 선거운동 소식을 모아봅니다.')+`<section class="section-pad"><div class="container">${state.admin?'<button class="admin-add" data-add="news" style="margin:0 0 24px">＋ 선거 소식 추가</button>':''}${rows.length?`<div class="news-grid">${rows.map(row=>{
+  const cover=safeUrl(row.image||(row.images||[])[0]);
+  const video=newsVideoMedia(row.link,row.videoOrientation,`${row.title} 영상`);
+  return `<article class="news-card edit-area">${editButton('news',row.id)}<div class="news-image ${!cover&&video?'news-image--video':''}">${cover?`<img loading="lazy" src="${cover}" alt="${esc(row.title)}">`:video||'<span class="muted">사진·영상</span>'}</div><div class="news-body"><small>${esc(row.category||'현장 소식')} · ${esc(row.date||'')}${newBadge(row.date)}</small><h3>${esc(row.title)}</h3><p>${esc(row.body)}</p></div><div class="news-foot"><button class="btn btn-sm btn-outline" data-news-detail="${esc(row.id)}">내용·사진 더 보기</button></div></article>`;
+ }).join('')}</div>`:'<div class="empty-state"><h3>선거 소식을 준비하고 있습니다.</h3><p>현장 방문 사진과 영상이 등록되면 이곳에서 확인할 수 있습니다.</p></div>'}</div></section>`;
 }
 function resources(){
  const items=state.site.resources;
@@ -182,7 +210,7 @@ function openEditor(kind,id='',isNew=false){
  {name:'sections',label:'세부 공약 내용',value:obj.sections?policyText(obj):'## 소제목\n• 세부 내용\n• 세부 내용',type:'textarea',rows:14,hint:'「## 소제목」으로 항목을 나누고 「•」로 세부 공약을 적어주세요. 화면에는 1-1 같은 번호가 표시되지 않습니다.'}].map(formField).join('');}
  if(kind==='news'){title=isNew?'선거 소식 추가':'선거 소식 수정';fields=[
  {name:'title',label:'제목',value:obj.title},{name:'category',label:'분류',value:obj.category||'현장 활동',options:[['현장 활동','현장 활동'],['영상','영상'],['공지','공지'],['사진','사진'],['기타','기타']]},
- {name:'date',label:'게시일 (YYYY-MM-DD)',value:obj.date||new Date().toISOString().slice(0,10)},{name:'body',label:'본문',value:obj.body,type:'textarea',rows:7},{name:'image',label:'대표 사진',value:obj.image,upload:true},{name:'images',label:'사진 여러 장 (주소를 한 줄씩)',value:(obj.images||[]).join('\n'),type:'textarea',rows:4,upload:true,uploadMany:true},{name:'link',label:'영상 또는 자세한 내용 링크 (선택)',value:obj.link||''}].map(formField).join('');}
+ {name:'date',label:'게시일 (YYYY-MM-DD)',value:obj.date||new Date().toISOString().slice(0,10)},{name:'body',label:'본문',value:obj.body,type:'textarea',rows:7},{name:'image',label:'대표 사진',value:obj.image,upload:true},{name:'images',label:'사진 여러 장 (주소를 한 줄씩)',value:(obj.images||[]).join('\n'),type:'textarea',rows:4,upload:true,uploadMany:true},{name:'link',label:'영상 또는 자세한 내용 링크 (선택)',value:obj.link||'',hint:'유튜브 일반 영상·쇼츠 또는 MP4/WebM 영상 주소를 입력하면 영상이 홈페이지 안에 표시됩니다.'},{name:'videoOrientation',label:'영상 화면 비율',value:obj.videoOrientation||'auto',options:[['auto','자동 (유튜브 쇼츠는 세로형)'],['portrait','세로형 (9:16)'],['landscape','가로형 (16:9)']]}].map(formField).join('');}
  if(kind==='settings'){
   title='후원계좌 · 채널 · 하단 문구 설정';
   const settings=state.site.settings||{},d=settings.donation||{},social=settings.social||{};
