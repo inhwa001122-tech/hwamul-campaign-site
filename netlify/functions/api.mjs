@@ -7,6 +7,15 @@ const storeBoards = () => getStore({ name: `${SID}-messages`, consistency: 'stro
 const storeFiles = () => getStore({ name: `${SID}-media`, consistency: 'strong' });
 const storeRate = () => getStore({ name: `${SID}-anti-spam`, consistency: 'strong' });
 const MAX_FILE = 3_000_000;
+// Netlify Functions accept buffered binary payloads of roughly 4.5 MB.
+// Videos are written as separate 2 MB blobs; no existing image or site blob is overwritten.
+const VIDEO_CHUNK_BYTES = 2_000_000;
+const MAX_VIDEO_BYTES = 100_000_000; // 100 MB per video
+const VIDEO_MIME = { 'video/mp4':'mp4', 'video/webm':'webm' };
+const videoKey = id => `v/${id}/meta`;
+const videoPartKey = (id,index) => `v/${id}/part/${String(index).padStart(4,'0')}`;
+const validVideoId = id => /^[a-f0-9]{8}-[a-f0-9-]{27,44}$/i.test(id||'');
+const videoBadRange = total => new Response(null,{status:416,headers:{...defaultHeaders,'content-range':`bytes */${total}`,'accept-ranges':'bytes'}});
 // Add the two special promises to previously saved site data exactly once.
 // Preserve the other policies, uploaded images, copy, site settings, and admin edits.
 const SPECIAL_PROMISES = [{"id":"special-accountability","kind":"special","title":"공약 이행, 조합원에게 평가받겠습니다!","eyebrow":"특별한 약속 1","sections":[{"title":"","points":["임원 공약 이행 현황과 주요 사업 추진 결과 매 대의원대회 전후 조합원 온오프라인 보고"]}]},{"id":"special-disclosure","kind":"special","title":"후보자부터 재산공개! 투명하고 책임 있는 화물연대!","eyebrow":"특별한 약속 2","sections":[{"title":"","points":["본부 임원후보자 재산공개제도 도입 추진","조합원 의견수렴을 통해 공개 범위와 방식 등 제도화 방안 마련"]}]}];
@@ -148,6 +157,81 @@ export default async function handler(request) {
       if(type!=='proposal'||!validId(id))return err('게시물 정보가 올바르지 않습니다.',404);
       await storeBoards().delete(`${type}/${id}`);
       return json({ok:true});
+    }
+    // Upload videos in small verified chunks so even long portrait/landscape MP4s
+    // work within Netlify Functions' 6 MB buffered-payload cap.
+    if(action==='video-init' && method==='POST') {
+      const auth=verifyAdmin(request);if(auth)return auth;
+      const data=await jsonBody(request);
+      const size=Number(data?.size),mime=text(data?.mime,50).toLowerCase(),name=text(data?.name,120);
+      const ext=(name.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase();
+      if(!Number.isSafeInteger(size)||size<1024||size>MAX_VIDEO_BYTES)return err('영상은 100MB 이하의 MP4 또는 WebM 파일만 업로드할 수 있습니다.');
+      if(!VIDEO_MIME[mime]||ext!==VIDEO_MIME[mime])return err('MP4 또는 WebM 영상만 지원합니다. 파일 형식과 확장자를 확인해 주세요.');
+      const id=randomUUID(),parts=Math.ceil(size/VIDEO_CHUNK_BYTES);
+      await storeFiles().setJSON(videoKey(id),{id,size,mime,name,parts,complete:false,createdAt:new Date().toISOString()});
+      return json({ok:true,id,chunkSize:VIDEO_CHUNK_BYTES,parts});
+    }
+    if(action==='video-chunk' && method==='POST') {
+      const auth=verifyAdmin(request);if(auth)return auth;
+      const id=url.searchParams.get('id'),index=Number(url.searchParams.get('index'));
+      if(!validVideoId(id)||!Number.isInteger(index))return err('영상 업로드 정보가 올바르지 않습니다.');
+      const st=storeFiles(),meta=await st.get(videoKey(id),{type:'json'});
+      if(!meta||meta.complete||index<0||index>=meta.parts)return err('영상 업로드 세션을 찾을 수 없습니다.',404);
+      const expected=index===meta.parts-1?meta.size-index*VIDEO_CHUNK_BYTES:VIDEO_CHUNK_BYTES;
+      if(Number(request.headers.get('content-length'))>expected+1024)return err('영상 조각 크기가 올바르지 않습니다.',413);
+      const bytes=await request.arrayBuffer();
+      if(bytes.byteLength!==expected)return err('영상 업로드 크기가 일치하지 않습니다.');
+      if(index===0){
+        const signature=Buffer.from(bytes.slice(0,16));
+        const valid=meta.mime==='video/mp4'
+          ? signature.subarray(4,8).toString()==='ftyp'
+          : signature.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]));
+        if(!valid)return err('영상 파일 형식이 올바르지 않습니다. MP4(H.264) 또는 WebM을 사용해 주세요.');
+      }
+      await st.set(videoPartKey(id,index),bytes);
+      return json({ok:true,index});
+    }
+    if(action==='video-finish' && method==='POST') {
+      const auth=verifyAdmin(request);if(auth)return auth;
+      const data=await jsonBody(request),id=data?.id;
+      if(!validVideoId(id))return err('영상 업로드 정보가 올바르지 않습니다.');
+      const st=storeFiles(),meta=await st.get(videoKey(id),{type:'json'});
+      if(!meta)return err('영상 업로드를 찾을 수 없습니다.',404);
+      if(!meta.complete){
+        const listed=await st.list({prefix:`v/${id}/part/`});
+        const keys=new Set((listed.blobs||[]).map(b=>b.key));
+        for(let i=0;i<meta.parts;i++)if(!keys.has(videoPartKey(id,i)))return err(`영상 업로드가 완료되지 않았습니다. ${i+1}번째 조각을 확인해 주세요.`);
+        await st.setJSON(videoKey(id),{...meta,complete:true});
+      }
+      return json({ok:true,url:`/api?action=video&id=${id}`,name:meta.name,size:meta.size});
+    }
+    if(action==='video' && (method==='GET'||method==='HEAD')) {
+      const id=url.searchParams.get('id');
+      if(!validVideoId(id))return err('영상 주소가 올바르지 않습니다.',404);
+      const st=storeFiles(),meta=await st.get(videoKey(id),{type:'json'});
+      if(!meta?.complete)return err('영상을 찾을 수 없습니다.',404);
+      const size=meta.size;
+      const base={...defaultHeaders,'content-type':meta.mime,'accept-ranges':'bytes',
+        'content-disposition':`inline; filename*=UTF-8''${encodeURIComponent(meta.name||'video.mp4')}`};
+      if(method==='HEAD')return new Response(null,{status:200,headers:{...base,'content-length':String(size)}});
+      const range=request.headers.get('range');
+      let start=0,end=size-1;
+      if(range){
+        const match=/^bytes=(\d*)-(\d*)$/.exec(range.trim());
+        if(!match||(!match[1]&&!match[2]))return videoBadRange(size);
+        if(!match[1]){const suffix=Number(match[2]);if(!Number.isSafeInteger(suffix)||suffix<=0)return videoBadRange(size);start=Math.max(0,size-suffix);}
+        else {start=Number(match[1]);if(match[2])end=Number(match[2]);}
+        if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>=size||start>end)return videoBadRange(size);
+      }
+      // Keep each response to one stored chunk, well under the function response limit.
+      const index=Math.floor(start/VIDEO_CHUNK_BYTES);
+      end=Math.min(end,size-1,(index+1)*VIDEO_CHUNK_BYTES-1);
+      const data=await st.get(videoPartKey(id,index),{type:'arrayBuffer'});
+      if(!data)return err('영상 조각이 누락되어 재생할 수 없습니다.',503);
+      const offset=start-index*VIDEO_CHUNK_BYTES,length=end-start+1;
+      const buffer=Buffer.from(data).subarray(offset,offset+length);
+      // 206 includes Content-Range so the browser requests the subsequent bytes.
+      return new Response(buffer,{status:206,headers:{...base,'content-range':`bytes ${start}-${end}/${size}`,'content-length':String(buffer.length)}});
     }
     if(action==='upload' && method==='POST') {
       const auth=verifyAdmin(request);if(auth)return auth;
