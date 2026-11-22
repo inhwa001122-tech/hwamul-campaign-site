@@ -98,6 +98,11 @@ function board(){
 }
 function newsVideoMedia(link,orientation='auto',title='선거 영상'){
  const raw=String(link||'').trim();if(!raw)return '';
+ // Uploaded videos live on this site's Netlify Blobs storage; their URLs are relative.
+ if(/^\/api\?action=video&id=[a-f0-9-]{36}$/i.test(raw)){
+  const mode=orientation==='portrait'?'portrait':orientation==='landscape'?'landscape':'native';
+  return `<div class="news-video news-video--${mode}"><video controls playsinline preload="metadata" src="${esc(raw)}" aria-label="${esc(title)}"></video></div>`;
+ }
  let parsed;try{parsed=new URL(raw)}catch{return ''}
  if(parsed.protocol!=='https:')return '';
  const host=parsed.hostname.toLowerCase().replace(/^www\./,'').replace(/^m\./,'');
@@ -122,14 +127,14 @@ function newsVideoMedia(link,orientation='auto',title='선거 영상'){
 function openNewsDetail(id){
  const row=state.site.news.find(n=>n.id===id);if(!row)return;
  const urls=[row.image,...(row.images||[])].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i);
- const video=newsVideoMedia(row.link,row.videoOrientation,`${row.title} 영상`);
- openModal(row.title,`<div class="form-stack"><div class="board-meta"><span class="category-label">${esc(row.category||'현장 소식')}</span><span>${esc(row.date||'')}</span></div><p style="white-space:pre-line;line-height:1.95;color:#444951">${esc(row.body||'')}</p>${video}<div class="news-detail-gallery">${urls.map(src=>`<img loading="lazy" src="${safeUrl(src)}" alt="${esc(row.title)} 현장사진">`).join('')}</div>${!video&&safeUrl(row.link)?`<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="${safeUrl(row.link)}">연결된 영상·자료 보기</a>`:''}</div>`,true);
+ const video=newsVideoMedia(row.videoFile||row.link,row.videoOrientation,`${row.title} 영상`);
+ openModal(row.title,`<div class="form-stack"><div class="board-meta"><span class="category-label">${esc(row.category||'현장 소식')}</span><span>${esc(row.date||'')}</span></div><p style="white-space:pre-line;line-height:1.95;color:#444951">${esc(row.body||'')}</p>${video}<div class="news-detail-gallery">${urls.map(src=>`<img loading="lazy" src="${safeUrl(src)}" alt="${esc(row.title)} 현장사진">`).join('')}</div>${safeUrl(row.link)&&(!video||row.videoFile)?`<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="${safeUrl(row.link)}">연결된 영상·자료 보기</a>`:''}</div>`,true);
 }
 function news(){
  const rows=state.site.news.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
  return head('CAMPAIGN JOURNAL','선거 소식','후보들의 현장 활동, 사진, 영상, 선거운동 소식을 모아봅니다.')+`<section class="section-pad"><div class="container">${state.admin?'<button class="admin-add" data-add="news" style="margin:0 0 24px">＋ 선거 소식 추가</button>':''}${rows.length?`<div class="news-grid">${rows.map(row=>{
   const cover=safeUrl(row.image||(row.images||[])[0]);
-  const video=newsVideoMedia(row.link,row.videoOrientation,`${row.title} 영상`);
+  const video=newsVideoMedia(row.videoFile||row.link,row.videoOrientation,`${row.title} 영상`);
   return `<article class="news-card edit-area">${editButton('news',row.id)}<div class="news-image ${!cover&&video?'news-image--video':''}">${cover?`<img loading="lazy" src="${cover}" alt="${esc(row.title)}">`:video||'<span class="muted">사진·영상</span>'}</div><div class="news-body"><small>${esc(row.category||'현장 소식')} · ${esc(row.date||'')}${newBadge(row.date)}</small><h3>${esc(row.title)}</h3><p>${esc(row.body)}</p></div><div class="news-foot"><button class="btn btn-sm btn-outline" data-news-detail="${esc(row.id)}">내용·사진 더 보기</button></div></article>`;
  }).join('')}</div>`:'<div class="empty-state"><h3>선거 소식을 준비하고 있습니다.</h3><p>현장 방문 사진과 영상이 등록되면 이곳에서 확인할 수 있습니다.</p></div>'}</div></section>`;
 }
@@ -168,12 +173,12 @@ function openModal(title,content,wide=false){
  setTimeout(()=>$('#modal-root .modal-content input:not([type="hidden"]), #modal-root .modal-content textarea, #modal-root .modal-close')?.focus(),10);
 }
 function closeModal(){$('#modal-root').innerHTML='';}
-function formField({name,label,value='',type='text',rows=5,hint='',upload=false,uploadMany=false,options=null}){
+function formField({name,label,value='',type='text',rows=5,hint='',upload=false,uploadMany=false,videoUpload=false,options=null}){
  const id='field-'+name;
  const labelMarkup=`<label for="${id}">${esc(label)}</label>`;
  const optionsMarkup=options?`<select id="${id}" name="${name}">${options.map(o=>`<option value="${esc(o[0])}" ${value===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`:'';
  const inputMarkup=optionsMarkup|| (type==='textarea'?`<textarea name="${name}" id="${id}" rows="${rows}">${esc(value)}</textarea>`:`<input type="${type}" name="${name}" id="${id}" value="${esc(value)}">`);
- return `<div class="field">${labelMarkup}${inputMarkup}${hint?`<span class="hint">${esc(hint)}</span>`:''}${upload?`<div class="file-upload"><label for="upload-${name}">${uploadMany?'사진 여러 장 업로드 (각 3MB 이하)':'사진·PDF 파일 업로드 (3MB 이하)'}</label><input id="upload-${name}" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf" ${uploadMany?'multiple':''} data-file-field="${name}"><span class="hint" id="upload-status-${name}">선택한 파일이 저장되면 위 주소에 자동 입력됩니다.</span></div>`:''}</div>`;
+ return `<div class="field">${labelMarkup}${inputMarkup}${hint?`<span class="hint">${esc(hint)}</span>`:''}${upload?`<div class="file-upload"><label for="upload-${name}">${uploadMany?'사진 여러 장 업로드 (각 3MB 이하)':'사진·PDF 파일 업로드 (3MB 이하)'}</label><input id="upload-${name}" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf" ${uploadMany?'multiple':''} data-file-field="${name}"><span class="hint" id="upload-status-${name}">선택한 파일이 저장되면 위 주소에 자동 입력됩니다.</span></div>`:''}${videoUpload?`<div class="file-upload video-file-upload"><label for="upload-${name}">MP4 / WebM 영상 파일 선택 (최대 100MB)</label><input id="upload-${name}" type="file" accept="video/mp4,video/webm,.mp4,.webm" data-video-field="${name}"><progress class="video-progress" id="video-progress-${name}" max="100" value="0" hidden></progress><span class="hint" id="upload-status-${name}">세로·가로 모두 가능 · 업로드 완료 후 반드시 아래 ‘저장하고 반영’을 눌러주세요.</span></div>`:''}</div>`;
 }
 const policyText=p=>p.sections.map(s=>(s.title?'## '+s.title+'\n':'')+s.points.map(x=>'• '+x).join('\n')).join('\n\n');
 function parsePolicy(input){
@@ -210,7 +215,7 @@ function openEditor(kind,id='',isNew=false){
  {name:'sections',label:'세부 공약 내용',value:obj.sections?policyText(obj):'## 소제목\n• 세부 내용\n• 세부 내용',type:'textarea',rows:14,hint:'「## 소제목」으로 항목을 나누고 「•」로 세부 공약을 적어주세요. 화면에는 1-1 같은 번호가 표시되지 않습니다.'}].map(formField).join('');}
  if(kind==='news'){title=isNew?'선거 소식 추가':'선거 소식 수정';fields=[
  {name:'title',label:'제목',value:obj.title},{name:'category',label:'분류',value:obj.category||'현장 활동',options:[['현장 활동','현장 활동'],['영상','영상'],['공지','공지'],['사진','사진'],['기타','기타']]},
- {name:'date',label:'게시일 (YYYY-MM-DD)',value:obj.date||new Date().toISOString().slice(0,10)},{name:'body',label:'본문',value:obj.body,type:'textarea',rows:7},{name:'image',label:'대표 사진',value:obj.image,upload:true},{name:'images',label:'사진 여러 장 (주소를 한 줄씩)',value:(obj.images||[]).join('\n'),type:'textarea',rows:4,upload:true,uploadMany:true},{name:'link',label:'영상 또는 자세한 내용 링크 (선택)',value:obj.link||'',hint:'유튜브 일반 영상·쇼츠 또는 MP4/WebM 영상 주소를 입력하면 영상이 홈페이지 안에 표시됩니다.'},{name:'videoOrientation',label:'영상 화면 비율',value:obj.videoOrientation||'auto',options:[['auto','자동 (유튜브 쇼츠는 세로형)'],['portrait','세로형 (9:16)'],['landscape','가로형 (16:9)']]}].map(formField).join('');}
+ {name:'date',label:'게시일 (YYYY-MM-DD)',value:obj.date||new Date().toISOString().slice(0,10)},{name:'body',label:'본문',value:obj.body,type:'textarea',rows:7},{name:'image',label:'대표 사진',value:obj.image,upload:true},{name:'images',label:'사진 여러 장 (주소를 한 줄씩)',value:(obj.images||[]).join('\n'),type:'textarea',rows:4,upload:true,uploadMany:true},{name:'videoFile',label:'홈페이지에 직접 올린 영상 (선택)',value:obj.videoFile||'',videoUpload:true,hint:'영상 파일은 위에서 선택해 업로드하세요. 기존 사진과 영상 링크는 유지됩니다.'},{name:'link',label:'외부 영상 또는 자세한 내용 링크 (선택)',value:obj.link||'',hint:'기존 외부 링크는 그대로 유지됩니다. 영상 파일과 링크를 모두 넣으면 업로드 영상을 우선 표시합니다.'},{name:'videoOrientation',label:'영상 화면 비율',value:obj.videoOrientation||'auto',options:[['auto','자동 (직접 업로드는 원본 비율, 쇼츠는 세로형)'],['portrait','세로형 (9:16)'],['landscape','가로형 (16:9)']]}].map(formField).join('');}
  if(kind==='settings'){
   title='후원계좌 · 채널 · 하단 문구 설정';
   const settings=state.site.settings||{},d=settings.donation||{},social=settings.social||{};
@@ -238,6 +243,7 @@ async function saveSite(next,success='저장했습니다.'){
  try{await api('site',{method:'PUT',data:{site:next}});state.site=next;render();toast(success);return true;}catch(e){toast('저장 실패: '+e.message);return false;}
 }
 async function submitEditor(form){
+ if(form.dataset.videoUploading==='true')throw new Error('영상 업로드가 끝난 후 저장해 주세요.');
  const kind=form.dataset.kind,id=form.dataset.id,isNew=form.dataset.new==='true';
  const values=Object.fromEntries(new FormData(form).entries());
  const site=clone(state.site);
@@ -351,6 +357,48 @@ async function handleFile(input){
  }catch(e){status.textContent=e.message;}
  input.disabled=false;
 }
+// Large video upload: each authenticated request is at most 2 MB.
+// Uploading a video never overwrites or removes a previously saved photo, post, or video.
+async function handleVideoFile(input){
+ const file=input.files?.[0];if(!file)return;
+ const name=input.dataset.videoField,output=$(`#field-${name}`),status=$(`#upload-status-${name}`);
+ const progress=$(`#video-progress-${name}`),form=input.closest('form'),submit=form?.querySelector('[type="submit"]');
+ if(!output||!status)return;
+ if(state.preview){status.textContent='실제 홈페이지 관리자 로그인 상태에서 영상을 업로드할 수 있습니다.';return;}
+ if(!state.backend||!state.admin){status.textContent='관리자 로그인 후 업로드해 주세요.';return;}
+ if(file.size>100_000_000||file.size<1024){status.textContent='영상 크기는 100MB 이하이어야 합니다.';return;}
+ const ext=file.name.split('.').pop()?.toLowerCase();
+ const mime=ext==='mp4'?'video/mp4':ext==='webm'?'video/webm':'';
+ if(!mime){status.textContent='MP4 또는 WebM 파일만 선택해 주세요.';return;}
+ input.disabled=true;if(submit)submit.disabled=true;
+ form.dataset.videoUploading='true';
+ progress.hidden=false;progress.value=0;
+ status.textContent='영상 업로드 준비 중…';
+ try{
+  const init=await api('video-init',{method:'POST',data:{name:file.name,size:file.size,mime}});
+  for(let i=0;i<init.parts;i++){
+   const piece=file.slice(i*init.chunkSize,Math.min((i+1)*init.chunkSize,file.size));
+   let error;
+   for(let attempt=0;attempt<3;attempt++){
+    try{
+     const response=await fetch(apiUrl('video-chunk',`&id=${encodeURIComponent(init.id)}&index=${i}`),{
+      method:'POST',credentials:'same-origin',headers:{'content-type':'application/octet-stream'},body:piece});
+     const answer=await response.json();
+     if(!response.ok||!answer.ok)throw new Error(answer.error||`영상 업로드 오류 (${response.status})`);
+     error=null;break;
+    }catch(e){error=e;}
+   }
+   if(error)throw error;
+   const pct=Math.round((i+1)/init.parts*99);
+   progress.value=pct;
+   status.textContent=`영상 업로드 중… ${pct}% (${i+1}/${init.parts})`;
+  }
+  const final=await api('video-finish',{method:'POST',data:{id:init.id}});
+  output.value=final.url;progress.value=100;
+  status.textContent=`영상 업로드 완료 · ${file.name} · 아래 ‘저장하고 반영’을 누르면 게시됩니다.`;
+ }catch(e){status.textContent='영상 업로드 실패: '+e.message+' 기존 게시물은 변경되지 않았습니다.';}
+ finally{input.disabled=false;if(submit)submit.disabled=false;delete form.dataset.videoUploading;}
+}
 async function init(){
  state.page=(location.hash||'#home').slice(1).split('?')[0];if(!NAV.some(x=>x[0]===state.page))state.page='home';
  try{state.site=window.__SITE_SEED || await (await fetch('/content/site.json',{cache:'no-store'})).json()}catch{ $('#app').innerHTML='<div class="empty-state"><h3>기본 자료를 불러오지 못했습니다.</h3><p>웹서버를 실행하거나 Netlify에 배포해 주세요.</p></div>';return;}
@@ -398,7 +446,7 @@ document.addEventListener('click',async event=>{
   try{if(state.preview){state.boards[type]=state.boards[type].filter(x=>x.id!==id);localSet('hwamul-preview-'+type,JSON.stringify(state.boards[type]));}else await api('board',{method:'DELETE',data:{type,id}});closeModal();await refreshBoard(type);render();toast('게시물을 삭제했습니다.');}catch(e){toast(e.message)}return;
  }
 });
-document.addEventListener('change',e=>{if(e.target.matches('[data-file-field]'))handleFile(e.target);});
+document.addEventListener('change',e=>{if(e.target.matches('[data-file-field]'))handleFile(e.target);if(e.target.matches('[data-video-field]'))handleVideoFile(e.target);});
 document.addEventListener('submit',async e=>{
  const f=e.target;if(!['edit-form','board-form','board-edit-form','login-form'].includes(f.id))return;
  e.preventDefault();const submit=f.querySelector('[type="submit"]');if(submit){submit.disabled=true;submit.textContent='처리 중…';}

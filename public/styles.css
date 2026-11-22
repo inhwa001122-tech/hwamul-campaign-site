@@ -169,3 +169,12 @@
  .policy-switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;overflow:visible}
  .policy-switch button{min-width:0;white-space:normal;padding:14px 6px;font-size:12px;letter-spacing:-.04em}
 }
+
+/* 관리자: 직접 영상 업로드의 상태와 진행률. 기존 사진/세로·가로 레이아웃 유지 */
+.video-file-upload{background:#f8f8f7;border-color:#aaaeb5}
+.video-progress{display:block;width:100%;height:11px;accent-color:var(--red)}
+.video-progress[hidden]{display:none}
+.news-video--portrait:has(video){display:flex;align-items:center;justify-content:center}
+.news-video--landscape:has(video){display:flex;align-items:center;justify-content:center}
+.news-video--portrait video,.news-video--landscape video{max-width:100%;max-height:100%;object-fit:contain}
+.news-video--native video{width:100%;max-height:75vh;height:auto}
