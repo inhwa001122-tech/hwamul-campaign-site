@@ -178,3 +178,12 @@
 .news-video--landscape:has(video){display:flex;align-items:center;justify-content:center}
 .news-video--portrait video,.news-video--landscape video{max-width:100%;max-height:100%;object-fit:contain}
 .news-video--native video{width:100%;max-height:75vh;height:auto}
+
+/* 정책제안: 비공개 본인 확인 동선. 기존 사진, 영상, 후보, 공약 레이아웃 유지 */
+.proposal-action-buttons{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.proposal-action-buttons .btn{min-height:43px}
+.board-side .proposal-check-button{background:#fff;color:var(--ink);border-color:#fff}
+.board-side .proposal-check-button:hover{background:#eeece9}
+.proposal-own-body{white-space:pre-line;font-size:14px;line-height:1.85;color:var(--ink)}
+#proposal-issued-receipt{font-size:14px;font-weight:700;letter-spacing:.01em}
+@media(max-width:520px){.proposal-action-buttons{flex-direction:column;align-items:stretch}.proposal-action-buttons .btn{width:100%}}

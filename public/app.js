@@ -8,7 +8,7 @@ const $=selector=>document.querySelector(selector);
 const demoCache={};
 const localGet=k=>{try{return localStorage.getItem(k)}catch{return demoCache[k]??null}};
 const localSet=(k,v)=>{demoCache[k]=v;try{localStorage.setItem(k,v)}catch{}};
-const state={site:null,admin:false,backend:false,preview:false,page:'home',mobile:false,manifesto:0,policyKind:'change',selectedPolicy:null,boardFilter:'전체',proposalCount:0,boards:{proposal:[]}};
+const state={site:null,admin:false,backend:false,preview:false,page:'home',mobile:false,manifesto:0,policyKind:'change',selectedPolicy:null,boardFilter:'전체',proposalCount:0,boards:{proposal:[]},previewPasswords:{}};
 const clone=v=>JSON.parse(JSON.stringify(v));
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl=v=>{
@@ -84,7 +84,7 @@ function policy(){
  <div class="policy-detail ${detail?'open':''}" id="policy-detail" aria-live="polite">${detail?`<div class="policy-detail-header edit-area">${editButton('policy',detail.id)}<div class="eyebrow">${esc(detail.eyebrow)} · 정책 상세</div><h2>${esc(detail.title)}</h2></div><div class="policy-detail-body">${detail.sections.map(s=>`<section class="policy-subsection">${s.title?`<h3>${esc(s.title)}</h3>`:''}<ul>${s.points.map(point=>`<li>${esc(point)}</li>`).join('')}</ul></section>`).join('')}</div>`:''}</div></div></section>`;
 }
 function boardHeader(){
- return head('YOUR VOICE · POLICY PROPOSALS','정책제안','현장의 정책제안은 비공개로 접수합니다. 제안 내용은 선거운동본부 관리자만 확인하며 접수 건수만 공개합니다.');
+ return head('YOUR VOICE · POLICY PROPOSALS','정책제안','제안 내용과 답변은 작성자가 설정한 비밀번호 또는 관리자 로그인으로만 확인할 수 있습니다. 전체 접수 건수만 공개합니다.');
 }
 function boardCard(item){
  return `<article class="board-card"><div class="board-meta"><span class="category-label">${esc(item.category||'정책제안')}</span><span>·</span><span>${esc(item.name||'익명')}</span><span>·</span><time>${formatDate(item.createdAt)}</time><span class="status-chip ${item.status==='반영'?'done':''}">${esc(item.status||'접수')}</span><span class="status-chip">비공개</span></div><h3>${esc(item.title)}</h3><p>${esc(item.body)}</p>${item.reply?`<div class="board-reply"><b>선본 답변 (관리자 전용)</b><p>${esc(item.reply)}</p></div>`:''}<div class="board-actions"><button class="btn btn-sm btn-outline" data-board-edit="proposal" data-id="${esc(item.id)}">답변·관리</button></div></article>`;
@@ -94,7 +94,7 @@ function board(){
  const count=Number.isFinite(state.proposalCount)?state.proposalCount:0;
  const categories=['전체','안전운임','지입제','플랫폼','노동기본권','조직 민주주의','산업전환','기타'];
  const filtered=state.boardFilter==='전체'?items:items.filter(x=>x.category===state.boardFilter);
- return boardHeader()+`<section class="section-pad"><div class="container board-layout"><aside class="board-side"><div class="eyebrow" style="color:#f48c96;margin-bottom:15px">POLICY SUGGESTION</div><h2>현장에서 필요한<br>정책을 말씀해 주세요.</h2><p>작성하신 제안은 비공개로 접수됩니다. 제안 내용과 작성자 정보는 공개되지 않으며 선거운동본부 관리자만 확인합니다.</p><button class="btn btn-primary" data-compose="proposal">＋ 정책제안 작성하기</button><div class="decor-number">02</div></aside><div class="proposal-board-main"><div class="proposal-count"><div class="proposal-count-label">지금까지 접수된 정책제안</div><div class="proposal-count-number" aria-live="polite">${count.toLocaleString('ko-KR')}<span>건</span></div><p>제안 내용은 비공개이며 접수 건수만 공개합니다.</p></div>${!state.backend&&!state.preview?'<div class="board-error"><b>게시판 서버 연결 전입니다.</b> Netlify 배포와 관리자 설정을 완료하면 실제 제안 작성과 게시물 저장이 가능합니다.</div>':''}${state.admin?`<div class="proposal-admin-only"><div class="board-list-head"><h2>관리자 전용 · 정책제안 목록</h2><span class="muted" style="font-size:12px">외부에 공개되지 않습니다.</span></div><div class="filter-row">${categories.map(c=>`<button class="pill ${state.boardFilter===c?'active':''}" data-board-filter="${esc(c)}">${esc(c)}</button>`).join('')}</div><div class="board-list">${filtered.length?filtered.map(boardCard).join(''):'<div class="board-empty"><b>접수된 정책제안이 없습니다.</b></div>'}</div></div>`:''}</div></div></section>`;
+ return boardHeader()+`<section class="section-pad"><div class="container board-layout"><aside class="board-side"><div class="eyebrow" style="color:#f48c96;margin-bottom:15px">POLICY SUGGESTION</div><h2>현장에서 필요한<br>정책을 말씀해 주세요.</h2><p>작성하신 제안은 비공개로 접수됩니다. 작성자는 확인번호와 비밀번호로 본인의 제안·답변을 확인할 수 있고, 관리자는 모든 제안을 확인합니다.</p><div class="proposal-action-buttons"><button class="btn btn-primary" data-compose="proposal">＋ 정책제안 작성하기</button><button class="btn btn-outline proposal-check-button" data-proposal-check>내 제안·답변 확인</button></div><div class="decor-number">02</div></aside><div class="proposal-board-main"><div class="proposal-count"><div class="proposal-count-label">지금까지 접수된 정책제안</div><div class="proposal-count-number" aria-live="polite">${count.toLocaleString('ko-KR')}<span>건</span></div><p>제안 내용과 답변은 비공개이며 접수 건수만 공개합니다.</p></div>${!state.backend&&!state.preview?'<div class="board-error"><b>게시판 서버 연결 전입니다.</b> Netlify 배포와 관리자 설정을 완료하면 실제 제안 작성과 게시물 저장이 가능합니다.</div>':''}${state.admin?`<div class="proposal-admin-only"><div class="board-list-head"><h2>관리자 전용 · 정책제안 목록</h2><span class="muted" style="font-size:12px">외부에 공개되지 않습니다.</span></div><div class="filter-row">${categories.map(c=>`<button class="pill ${state.boardFilter===c?'active':''}" data-board-filter="${esc(c)}">${esc(c)}</button>`).join('')}</div><div class="board-list">${filtered.length?filtered.map(boardCard).join(''):'<div class="board-empty"><b>접수된 정책제안이 없습니다.</b></div>'}</div></div>`:''}</div></div></section>`;
 }
 function newsVideoMedia(link,orientation='auto',title='선거 영상'){
  const raw=String(link||'').trim();if(!raw)return '';
@@ -281,7 +281,30 @@ function openCompose(type){
  if(type!=='proposal')return;
  if(!state.backend&&!state.preview){toast('실제 게시글 등록은 Netlify 서버 배포 후 가능합니다.');return;}
  const choices=['안전운임','지입제','플랫폼','노동기본권','조직 민주주의','산업전환','기타'];
- openModal('비공개 정책제안 작성하기',`<form class="form-stack" id="board-form" data-type="proposal"><div class="help-note">정책제안은 <b>비공개</b>로 접수됩니다. 제안 내용과 작성자 정보는 선거운동본부 관리자만 열람하며 일반 방문자에게는 전체 제안 건수만 표시됩니다. 필요하지 않은 개인정보는 입력하지 말아 주세요.</div><div class="form-row"><div class="field"><label for="board-name">이름 또는 별명</label><input id="board-name" name="name" maxlength="25" placeholder="익명" autocomplete="off"></div><div class="field"><label for="board-category">제안 분야</label><select id="board-category" name="category">${choices.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div></div><div class="field"><label for="board-title">제안 제목 <span class="required">*</span></label><input id="board-title" name="title" maxlength="110" required placeholder="제안하고 싶은 내용을 한 줄로 적어주세요"></div><div class="field"><label for="board-body">정책제안 내용 <span class="required">*</span></label><textarea id="board-body" name="body" minlength="5" maxlength="1500" rows="8" required placeholder="현장에서 필요한 정책을 구체적으로 작성해 주세요."></textarea></div><div class="field" style="display:none"><label for="board-website">웹사이트</label><input id="board-website" name="website" tabindex="-1" autocomplete="off"></div><label class="check-line"><input type="checkbox" name="consent" value="yes" required> 정책제안이 비공개로 접수되고 선본 관리자가 내용을 확인하는 것에 동의합니다. <span class="required">*</span></label><div class="modal-error" id="board-error"></div><div class="form-submit"><button class="btn btn-outline" type="button" data-close>취소</button><button class="btn btn-primary" type="submit">비공개 정책제안 등록</button></div></form>`,true);
+ openModal('비공개 정책제안 작성하기',`<form class="form-stack" id="board-form" data-type="proposal"><div class="help-note">정책제안은 <b>비공개</b>로 접수됩니다. 관리자는 모든 제안을 확인하고 답변할 수 있으며, 작성자는 접수 후 발급되는 <b>확인번호와 직접 정한 비밀번호</b>로 본인의 제안과 답변을 확인할 수 있습니다. 1인당 제안 개수 제한은 없습니다.</div><div class="form-row"><div class="field"><label for="board-name">이름 또는 별명</label><input id="board-name" name="name" maxlength="25" placeholder="익명" autocomplete="off"></div><div class="field"><label for="board-category">제안 분야</label><select id="board-category" name="category">${choices.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div></div><div class="field"><label for="board-title">제안 제목 <span class="required">*</span></label><input id="board-title" name="title" maxlength="110" required placeholder="제안하고 싶은 내용을 한 줄로 적어주세요"></div><div class="field"><label for="board-body">정책제안 내용 <span class="required">*</span></label><textarea id="board-body" name="body" minlength="5" maxlength="1500" rows="8" required placeholder="현장에서 필요한 정책을 구체적으로 작성해 주세요."></textarea></div><div class="form-row"><div class="field"><label for="proposal-password">답변 확인용 비밀번호 <span class="required">*</span></label><input id="proposal-password" name="password" type="password" minlength="6" maxlength="64" required autocomplete="new-password" placeholder="6자 이상 입력"></div><div class="field"><label for="proposal-password-confirm">비밀번호 다시 입력 <span class="required">*</span></label><input id="proposal-password-confirm" name="passwordConfirm" type="password" minlength="6" maxlength="64" required autocomplete="new-password" placeholder="비밀번호 확인"></div></div><p class="anon-note">비밀번호 원문은 서버에 저장하지 않고 단방향 해시 검증값만 보관합니다. 등록 후 표시되는 확인번호와 비밀번호를 잃어버리지 않도록 개인적으로 보관해 주세요.</p><div class="field" style="display:none"><label for="board-website">웹사이트</label><input id="board-website" name="website" tabindex="-1" autocomplete="off"></div><label class="check-line"><input type="checkbox" name="consent" value="yes" required> 제안 내용을 관리자 및 비밀번호를 입력한 작성자 본인만 열람할 수 있다는 점에 동의합니다. <span class="required">*</span></label><div class="modal-error" id="board-error"></div><div class="form-submit"><button class="btn btn-outline" type="button" data-close>취소</button><button class="btn btn-primary" type="submit">비공개 정책제안 등록</button></div></form>`,true);
+}
+function openProposalCheck(){
+ if(!state.backend&&!state.preview){toast('게시판 서버에 연결되어 있지 않습니다.');return;}
+ openModal('내 정책제안·답변 확인',`<form id="proposal-check-form" class="form-stack"><div class="help-note">접수 완료 시 발급받은 <b>확인번호</b>와 해당 제안의 <b>비밀번호</b>를 입력하면 본인의 제안과 관리자 답변만 확인할 수 있습니다. 다른 제안은 조회할 수 없습니다.</div><div class="field"><label for="proposal-check-receipt">확인번호</label><input type="text" id="proposal-check-receipt" name="receipt" required autocomplete="off" maxlength="100" placeholder="등록 후 발급받은 확인번호 붙여넣기"></div><div class="field"><label for="proposal-check-password">비밀번호</label><input type="password" id="proposal-check-password" name="password" required autocomplete="off" maxlength="64"></div><div class="modal-error"></div><div class="form-submit"><button type="button" class="btn btn-outline" data-close>취소</button><button type="submit" class="btn btn-primary">비공개 제안 확인</button></div></form>`,true);
+}
+function showProposalReceipt(receipt,preview=false){
+ openModal('정책제안 접수 완료',`<div class="form-stack"><p class="save-flash">정책제안이 비공개로 접수되었습니다.</p><p>나중에 답변을 확인하려면 <b>아래 확인번호와 등록할 때 설정한 비밀번호</b>가 필요합니다.</p><div class="field"><label for="proposal-issued-receipt">내 제안 확인번호</label><input id="proposal-issued-receipt" value="${esc(receipt)}" readonly></div><button type="button" class="btn btn-outline" data-copy-proposal-receipt>확인번호 복사</button><p class="anon-note">${preview?'현재는 미리보기입니다. 실제 서버에는 저장되지 않았습니다.':'확인번호는 이 화면을 닫으면 다시 표시되지 않습니다. 반드시 복사해서 안전하게 보관해 주세요. 비밀번호는 별도로 기억해야 합니다.'}</p><div class="form-submit"><button type="button" class="btn btn-primary" data-close>확인번호를 보관했습니다</button></div></div>`,true);
+}
+function showOwnProposal(item){
+ openModal('내 정책제안·관리자 답변',`<div class="form-stack"><div class="board-meta"><span class="category-label">${esc(item.category||'정책제안')}</span><span>${formatDate(item.createdAt)}</span><span class="status-chip">${esc(item.status||'접수')}</span></div><h3 class="board-form-title">${esc(item.title)}</h3><p class="proposal-own-body">${esc(item.body||'')}</p><div class="board-reply"><b>선본 답변</b><p>${item.reply?esc(item.reply):'아직 등록된 답변이 없습니다. 답변이 등록되면 같은 확인번호와 비밀번호로 다시 확인할 수 있습니다.'}</p></div><div class="form-submit"><button type="button" class="btn btn-primary" data-close>확인</button></div></div>`,true);
+}
+async function submitProposalCheck(form){
+ const fields=Object.fromEntries(new FormData(form).entries());
+ const receipt=String(fields.receipt||'').trim(),password=String(fields.password||'');
+ let item;
+ if(state.preview){
+  item=state.boards.proposal.find(x=>x.id===receipt && state.previewPasswords[receipt]===password);
+  if(!item)throw new Error('확인번호와 비밀번호를 확인해 주세요.');
+ }else {
+  const response=await api('proposal-view',{method:'POST',data:{receipt,password}});
+  item=response.item;
+ }
+ showOwnProposal(item);
 }
 async function refreshBoard(type){
  if(type!=='proposal')return;
@@ -300,18 +323,29 @@ async function refreshBoard(type){
 async function submitBoard(form){
  if(form.dataset.type!=='proposal')throw new Error('지원하지 않는 게시판입니다.');
  const fields=Object.fromEntries(new FormData(form).entries());
- const payload={type:'proposal',name:String(fields.name||'익명'),category:fields.category,title:fields.title,body:fields.body,website:fields.website||'',consent:fields.consent==='yes'};
+ const password=String(fields.password||'');
+ if(password.length<6||password.length>64)throw new Error('답변 확인용 비밀번호는 6~64자로 입력해 주세요.');
+ if(password!==String(fields.passwordConfirm||''))throw new Error('비밀번호와 비밀번호 확인이 일치하지 않습니다.');
+ const payload={type:'proposal',name:String(fields.name||'익명'),category:fields.category,title:fields.title,body:fields.body,website:fields.website||'',consent:fields.consent==='yes',password};
  if(!payload.consent)throw new Error('비공개 정책제안 접수에 동의해 주세요.');
+ let receipt;
  if(state.preview){
-  const row={...payload,id:'demo-'+Date.now(),visible:false,status:'접수',reply:'',createdAt:new Date().toISOString()};
+  receipt='demo-'+Date.now();
+  state.previewPasswords[receipt]=password;
+  const {password:privatePassword,...publicPayload}=payload;
+  const row={...publicPayload,id:receipt,visible:false,status:'접수',reply:'',createdAt:new Date().toISOString()};
   state.boards.proposal.unshift(row);localSet('hwamul-preview-proposal',JSON.stringify(state.boards.proposal));
- }else{await api('board',{method:'POST',data:payload});}
- closeModal();await refreshBoard('proposal');toast(state.preview?'미리보기 브라우저에만 등록되었습니다.':'정책제안이 비공개로 접수되었습니다.');render();
+ }else {
+  const result=await api('board',{method:'POST',data:payload});
+  receipt=result.receipt;
+  if(!receipt)throw new Error('접수 확인번호를 받지 못했습니다. 관리자에게 문의해 주세요.');
+ }
+ await refreshBoard('proposal');render();showProposalReceipt(receipt,state.preview);
 }
 function openBoardEditor(type,id){
  if(!state.admin||type!=='proposal')return;
  const item=state.boards.proposal.find(x=>x.id===id);if(!item)return;
- openModal('비공개 정책제안 답변·관리',`<form id="board-edit-form" class="form-stack" data-type="proposal" data-id="${esc(id)}"><div class="help-note"><b>${esc(item.title)}</b><p style="margin-top:8px;white-space:pre-line">${esc(item.body)}</p><p style="margin-top:8px">이 제안 및 답변은 관리자에게만 표시됩니다.</p></div>${formField({name:'status',label:'처리 상태',value:item.status||'접수',options:[['접수','접수'],['검토중','검토중'],['답변완료','답변완료'],['반영','반영']]})}${formField({name:'reply',label:'선본 답변 (관리자 전용)',value:item.reply||'',type:'textarea',rows:7})}<div class="modal-error" id="board-edit-error"></div><div class="form-submit"><button type="button" data-delete-board class="btn btn-sm btn-outline">게시물 삭제</button><button type="button" data-close class="btn btn-outline">취소</button><button class="btn btn-primary" type="submit">저장</button></div></form>`,true);
+ openModal('비공개 정책제안 답변·관리',`<form id="board-edit-form" class="form-stack" data-type="proposal" data-id="${esc(id)}"><div class="help-note"><b>${esc(item.title)}</b><p style="margin-top:8px;white-space:pre-line">${esc(item.body)}</p><p style="margin-top:8px">관리자 전체 열람 가능 · 작성자는 등록 시 발급받은 확인번호와 비밀번호로 자신의 제안과 답변만 확인합니다. (이전 등록 글에는 확인 비밀번호가 없을 수 있습니다.)</p></div>${formField({name:'status',label:'처리 상태',value:item.status||'접수',options:[['접수','접수'],['검토중','검토중'],['답변완료','답변완료'],['반영','반영']]})}${formField({name:'reply',label:'선본 답변 (작성자도 확인 가능)',value:item.reply||'',type:'textarea',rows:7})}<div class="modal-error" id="board-edit-error"></div><div class="form-submit"><button type="button" data-delete-board class="btn btn-sm btn-outline">게시물 삭제</button><button type="button" data-close class="btn btn-outline">취소</button><button class="btn btn-primary" type="submit">저장</button></div></form>`,true);
 }
 async function submitBoardEdit(form){
  const type='proposal',id=form.dataset.id,fields=Object.fromEntries(new FormData(form).entries());const payload={type,id,status:fields.status,reply:fields.reply,visible:false};
@@ -430,6 +464,11 @@ document.addEventListener('click',async event=>{
  if(t.closest('[data-policy-kind]')){state.policyKind=t.closest('[data-policy-kind]').dataset.policyKind;state.selectedPolicy=null;render();return;}
  if(t.closest('[data-policy-id]')){state.selectedPolicy=t.closest('[data-policy-id]').dataset.policyId;render();setTimeout(()=>$('#policy-detail')?.scrollIntoView({block:'start',behavior:'smooth'}),0);return;}
  if(t.closest('[data-news-detail]')){openNewsDetail(t.closest('[data-news-detail]').dataset.newsDetail);return;}
+ if(t.closest('[data-proposal-check]')){openProposalCheck();return;}
+ if(t.closest('[data-copy-proposal-receipt]')){
+  const field=$('#proposal-issued-receipt');if(!field)return;
+  try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(field.value);else{field.select();if(!document.execCommand('copy'))throw new Error('복사 실패');}toast('제안 확인번호를 복사했습니다.');}catch{field.select();toast('확인번호를 선택했습니다. 직접 복사해 주세요.');}return;
+ }
  if(t.closest('[data-board-filter]')){state.boardFilter=t.closest('[data-board-filter]').dataset.boardFilter;render();return;}
  if(t.closest('[data-compose]')){openCompose(t.closest('[data-compose]').dataset.compose);return;}
  if(t.closest('[data-edit]')){const el=t.closest('[data-edit]');openEditor(el.dataset.edit,el.dataset.id);return;}
@@ -448,19 +487,20 @@ document.addEventListener('click',async event=>{
 });
 document.addEventListener('change',e=>{if(e.target.matches('[data-file-field]'))handleFile(e.target);if(e.target.matches('[data-video-field]'))handleVideoFile(e.target);});
 document.addEventListener('submit',async e=>{
- const f=e.target;if(!['edit-form','board-form','board-edit-form','login-form'].includes(f.id))return;
+ const f=e.target;if(!['edit-form','board-form','board-edit-form','login-form','proposal-check-form'].includes(f.id))return;
  e.preventDefault();const submit=f.querySelector('[type="submit"]');if(submit){submit.disabled=true;submit.textContent='처리 중…';}
  const errBox=f.querySelector('.modal-error');if(errBox)errBox.textContent='';
  try{
   if(f.id==='edit-form')await submitEditor(f);
   if(f.id==='board-form')await submitBoard(f);
+  if(f.id==='proposal-check-form')await submitProposalCheck(f);
   if(f.id==='board-edit-form')await submitBoardEdit(f);
   if(f.id==='login-form'){
    const r=await api('login',{method:'POST',data:{password:f.elements.namedItem('password').value}});
    state.admin=r.admin;closeModal();render();await refreshBoard('proposal');toast('관리자 로그인 완료');
   }
  }catch(err){if(errBox)errBox.textContent=err.message;else toast(err.message)}
- if(submit.isConnected){submit.disabled=false;submit.textContent=f.id==='edit-form'?'저장하고 반영':f.id==='board-form'?'등록':'저장';}
+ if(submit.isConnected){submit.disabled=false;submit.textContent=f.id==='edit-form'?'저장하고 반영':f.id==='board-form'?'등록':f.id==='proposal-check-form'?'비공개 제안 확인':'저장';}
 });
 window.addEventListener('popstate',()=>{const page=(location.hash||'#home').slice(1);state.page=NAV.some(x=>x[0]===page)?page:'home';render();window.scrollTo(0,0);});
 window.addEventListener('hashchange',()=>{const page=(location.hash||'#home').slice(1);if(page!==state.page&&NAV.some(x=>x[0]===page)){state.page=page;render();window.scrollTo(0,0)}});
