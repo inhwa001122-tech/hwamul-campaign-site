@@ -1,5 +1,5 @@
 import { getStore } from '@netlify/blobs';
-import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const SID = 'hwamul-campaign-v1';
 const storeContent = () => getStore({ name: `${SID}-site`, consistency: 'strong' });
@@ -77,6 +77,38 @@ async function countProposals() {
   const { blobs }=await storeBoards().list({prefix:'proposal/'});
   return (blobs||[]).length;
 }
+// Protect individual submissions with a salted scrypt digest, never plaintext.
+const validProposalPassword = value => typeof value==='string' && value.length>=6 && value.length<=64;
+function secureProposalPassword(value){
+ const salt=randomBytes(16).toString('hex');
+ return `scrypt:${salt}:${scryptSync(value,salt,64).toString('hex')}`;
+}
+function checkProposalPassword(value,stored){
+ if(!validProposalPassword(value)||typeof stored!=='string')return false;
+ const parts=stored.split(':');
+ if(parts.length!==3||parts[0]!=='scrypt'||!/^[a-f0-9]{32}$/.test(parts[1])||!/^[a-f0-9]{128}$/.test(parts[2]))return false;
+ const expected=Buffer.from(parts[2],'hex');
+ const actual=scryptSync(value,parts[1],expected.length);
+ return timingSafeEqual(actual,expected);
+}
+// Failed unlocks are throttled by visitor IP + submission ID without storing an IP.
+function unlockRateKey(request,id){
+ const ip=request.headers.get('x-nf-client-connection-ip') || (request.headers.get('x-forwarded-for')||'').split(',')[0]?.trim() || 'unknown';
+ return `unlock/${createHmac('sha256',adminSecret()||'public-lookup').update(`${ip}:${id}`).digest('hex')}`;
+}
+async function unlockAllowed(request,id){
+ const row=await storeRate().get(unlockRateKey(request,id),{type:'json'});
+ return !row || row.until<=Date.now() || row.count<8;
+}
+async function noteUnlockFailure(request,id){
+ const st=storeRate(),key=unlockRateKey(request,id),now=Date.now();
+ const previous=await st.get(key,{type:'json'});
+ const count=previous && previous.until>now ? Number(previous.count||0)+1 : 1;
+ await st.setJSON(key,{count,until:now+15*60_000});
+}
+async function clearUnlockFailures(request,id){
+ await storeRate().delete(unlockRateKey(request,id));
+}
 async function rateLimit(request) {
   const ip=request.headers.get('x-nf-client-connection-ip') || (request.headers.get('x-forwarded-for')||'').split(',')[0]?.trim() || 'unknown';
   // Do not store raw IP addresses. The HMAC is a short-lived anti-spam identifier.
@@ -134,11 +166,30 @@ export default async function handler(request) {
       const body=text(data?.body,1500),title=text(data?.title,110),name=text(data?.name,25)||'익명',category=text(data?.category,30);
       if(body.length<5 || title.length<2)return err('제목과 본문을 확인해 주세요.');
       if(data?.consent!==true)return err('비공개 정책제안 접수에 동의해 주세요.');
+      if(!validProposalPassword(data?.password))return err('제안 확인 비밀번호는 6~64자로 설정해 주세요.');
       if(!await rateLimit(request))return err('연속 등록은 잠시 후 다시 시도해 주세요.',429);
       const id=randomUUID();
-      const row={id,type,title,name,category,body,status:'접수',reply:'',visible:false,createdAt:new Date().toISOString()};
+      const row={id,type,title,name,category,body,status:'접수',reply:'',visible:false,createdAt:new Date().toISOString(),passwordDigest:secureProposalPassword(data.password)};
       await storeBoards().setJSON(`${type}/${id}`,row,{onlyIfNew:true});
-      return json({ok:true,count:await countProposals()},201);
+      // Return a private receipt to this submitting browser only, never in public listing.
+      return json({ok:true,count:await countProposals(),receipt:id},201);
+    }
+    if(action==='proposal-view' && method==='POST') {
+      const data=await jsonBody(request);
+      const id=text(data?.receipt,100);
+      if(!validId(id))return err('확인번호와 비밀번호를 확인해 주세요.',401);
+      const administrator=goodCookie(request);
+      if(!administrator && !(await unlockAllowed(request,id)))return err('비밀번호 확인 횟수가 많습니다. 15분 후 다시 시도해 주세요.',429);
+      const row=await storeBoards().get(`proposal/${id}`,{type:'json'});
+      if(!row)return err('확인번호와 비밀번호를 확인해 주세요.',401);
+      if(!administrator){
+        if(!checkProposalPassword(data?.password,row.passwordDigest)){
+          await noteUnlockFailure(request,id);
+          return err('확인번호와 비밀번호를 확인해 주세요.',401);
+        }
+        await clearUnlockFailures(request,id);
+      }
+      return json({ok:true,item:publicBoardRow(row,true)});
     }
     if(action==='board' && method==='PATCH') {
       const auth=verifyAdmin(request);if(auth)return auth;
